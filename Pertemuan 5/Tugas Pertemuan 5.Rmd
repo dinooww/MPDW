@@ -1,0 +1,204 @@
+---
+title: "Tugas Pertemuan 5"
+author: "Sabitala Dinika G1401231089"
+date: "2025-09-21"
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    toc: true
+    toc-title: "Daftar Isi"
+    toc-depth: 3
+    toc-location: left
+    code-fold: false
+    code-copy: true
+editor:
+  markdown:
+    wrap: 72
+---
+
+# Import Library
+
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(forecast)
+library(TSA)
+library(MASS)
+library(readxl)
+```
+
+# Import Data
+
+```{r}
+jkt <- read_xlsx("~/punya dinoy/kuliah/Semester 5/MPDW/dataudarajkt.xlsx")
+head(jkt)
+```
+
+Data yang digunakan adalah data kualitas udara di Jakarta dengan variabel Y adalah pm10 (partikel berdiameter 10 mikron atau kurang).
+
+# Split Data
+
+Data akan di-split menjadi 80% data train dan 20% data test.
+
+```{r}
+# Hitung index batas 80%
+n <- nrow(jkt)
+n_train <- floor(0.8 * n)
+
+# Split data
+train_jkt <- jkt[1:n_train, ]
+test_data  <- jkt[(n_train + 1):n, ]
+```
+
+```{r}
+jkt.ts <- ts(train_jkt$pm10, start = 1, frequency = 1)
+```
+
+
+# Plot Time Series
+
+```{r}
+plot(jkt.ts,
+     type = "l",
+     xlab = "Periode",
+     ylab = "PM10",
+     main = "Plot Time Series PM10")
+```
+
+Berdasarkan plot time series tersebut, terlihat bahwa data tidak stasioner dalam rataan, ditandai dengan adanya kecenderungan (tren) positif, dan juga tidak stasioner dalam ragam, ditandai dengan adanya lebar pita pada plot yang cenderung berbeda-beda.
+
+# Cek Kestasioneran Data
+
+## Kestasioneran dalam Rataan
+
+### Plot ACF
+
+```{r}
+acf(jkt.ts, main="Plot ACF PM10")
+```
+
+Plot ACF PM10 menunjukkan korelasi yang menurun secara perlahan pada banyak lag, sehingga menjadi indikasi kuat bahwa deret tidak stasioner dalam rataan.
+
+### Uji ADF
+
+```{r}
+tseries::adf.test(jkt.ts)
+```
+
+Berdasarkan uji ADF tersebut, didapat p-value = 0.1092 lebih besar dari taraf nyata 5% sehingga gagal tolak $H_0$ yang menyatakan bahwa data tidak stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF.
+
+## Kestasioneran dalam Ragam
+
+### Plot Box-Cox
+
+```{r}
+bc <- boxcox(jkt.ts ~ train_jkt$periode, lambda = seq(-1, 3, 0.001))
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+
+Hasil uji Box-Cox menunjukkan bahwa nilai lambda optimal berada pada 1.603 dengan selang kepercayaan 95% antara 0.957 hingga 2.279. Karena nilai λ = 1 termasuk dalam selang kepercayaannya, maka ragam data PM10 stasioner. Artinya, data dikatakan homoskedastisitas. Namun, batas bawah sangat mendekati nilai 1 dan untuk mencegah perubahan kestasioneran setelah melakukan differencing, maka penanganan ketidakstasioneran dalam ragam tetap dilakukan, yaitu dengan transformasi Box-Cox.
+
+# Penanganan Ketidakstasioneran Data
+
+## Transformasi Box-Cox
+
+```{r}
+jkt_transformasi <- BoxCox(jkt.ts, lambda = "auto")
+
+lambda_terpilih <- attr(jkt_transformasi, "lambda")
+print(paste("Lambda optimal:", lambda_terpilih))
+
+plot(jkt_transformasi, type="l", main="Setelah Transformasi Box-Cox")
+```
+
+## Differencing Ordo 1
+
+```{r}
+jkt_diff1 <- diff(jkt_transformasi, differences = 1)
+plot(jkt_diff1,
+     type = "l",
+     xlab = "Periode",
+     ylab = "PM10",
+     main = "Setelah Differencing Ordo 1")
+```
+
+Setelah dilakukan first differencing pada data PM10, pola fluktuasinya terlihat sudah berpusat di sekitar nol sepanjang deret waktu. Tren naik atau turun yang sebelumnya muncul pada data asli sudah tidak tampak lagi, sehingga rata-rata dapat dianggap stabil dari waktu ke waktu. Namun, ragam pada plot tersebut masih terlihat tidak menyebar dengan cukup konstan, maka dilakukan differencing ordo 2.
+
+## Differencing Ordo 2
+
+```{r}
+jkt_diff2 <- diff(jkt_diff1, differences = 2)
+plot(jkt_diff2,
+     type = "l",
+     xlab = "Periode",
+     ylab = "PM10",
+     main = "Setelah Differencing Ordo 2")
+```
+
+Setelah dilakukan differencing ordo 2, terlihat ragam sudah menyebar dengan cukup konstan sepanjang deret waktu dan dapat dilanjut untuk cek kestasioneran data.
+
+# Pengecekan Kembali Kestasioneran Data
+
+## Kestasioneran dalam Rataan
+
+### Plot ACF
+
+```{r}
+acf(jkt_diff2, main="Plot ACF PM10 Setelah Penanganan")
+```
+
+Dari plot ACF di atas setelah dilakukan differencing ordo 1, terlihat bahwa plot ACF di atas sudah tidak mengalami penurunan perlahan dan hanya sedikit lag yang signifikan pada plot ACF. Hal ini menunjukkan bahwa data sudah stasioner dalam rataan.
+
+### Uji ADF
+
+```{r}
+tseries::adf.test(jkt_diff2)
+```
+
+Berdasarkan uji ADF tersebut, didapat p-value = 0.01 yang lebih kecil dari taraf nyata 5% sehingga tolak $H_0$, yang artinya data sudah stasioner dalam rataan. Hal ini menunjukkan bahwa differencing berhasil menangani ketidakstasioneran data dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF.
+
+## Kestasioneran dalam Ragam
+
+### Plot Box-Cox
+
+```{r}
+index <- seq(1:length(jkt_diff2))
+
+# Uji Box-Cox
+bc <- boxcox(
+  jkt_diff2 - min(jkt_diff2) + 1 ~ index,
+  lambda = seq(-1, 3, by = 0.001)
+)
+lambda
+```
+
+```{r}
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+
+Hasil uji Box-Cox menunjukkan bahwa nilai lambda optimal berada pada 1.603 dengan selang kepercayaan 95% antara 0.856 hingga 1.568. Karena nilai λ = 1 termasuk dalam selang kepercayaannya, maka ragam data PM10 sudah stasioner. Artinya, data dikatakan homoskedastisitas.
+
+# Kesimpulan
+
+Berdasarkan analisis yang telah dilakukan, awalnya data PM10 belum stasioner dalam rataan dan sudah stasioner dalam ragam tetapi perlu dilakukan transformasi Box-Cox karena batas bawah selang kepercayaan sangat dekat dengan 1. Setelah dilakukan transformasi Box-Cox dan differencing hingga ordo 2, kestasioneran dalam rataan maupun ragam menjadi keduanya terpenuhi.
